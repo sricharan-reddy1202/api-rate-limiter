@@ -1,4 +1,4 @@
-const { fixedWindowLimiter } = require('../services/rateLimiter');
+const { slidingWindowLimiter } = require('../services/rateLimiter');
 
 function rateLimiter(options) {
     const { limit, windowMs } = options;
@@ -6,7 +6,7 @@ function rateLimiter(options) {
     return async (req, res, next) => {
         const key = req.ip;
 
-        const result = await fixedWindowLimiter(key, limit, windowMs);
+        const result = await slidingWindowLimiter(key, limit, windowMs);
 
         if (!result.allowed) {
             return res.status(429).json({
