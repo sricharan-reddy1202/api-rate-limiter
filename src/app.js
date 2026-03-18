@@ -12,11 +12,9 @@ app.get('/', (req, res) => {
 // Apply middleware to route
 app.get(
     '/test',
-    rateLimiter({ limit: 5, windowMs: 60 * 1000 }),
+    rateLimiter({ capacity: 5, refillRate: 1 }),
     (req, res) => {
-        res.json({
-            message: 'Request successful'
-        });
+        res.json({ message: 'Request successful' });
     }
 );
 

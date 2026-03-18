@@ -49,8 +49,58 @@ async function slidingWindowLimiter(key, limit, windowMs) {
 
     return { allowed: false };
 }
+// Token Bucket Limiter
+async function tokenBucketLimiter(key, capacity, refillRate) {
+    const redisKey = `rate:token:${key}`;
+    const currentTime = Date.now();
 
+    let data = await client.hGetAll(redisKey);
+
+    let tokens;
+    let lastRefillTime;
+
+    if (Object.keys(data).length === 0) {
+        // First request
+        tokens = capacity - 1;
+        lastRefillTime = currentTime;
+
+        await client.hSet(redisKey, {
+            tokens,
+            lastRefillTime
+        });
+
+        return { allowed: true };
+    }
+
+    tokens = parseFloat(data.tokens);
+    lastRefillTime = parseInt(data.lastRefillTime);
+
+    // Calculate tokens to add
+    const timePassed = (currentTime - lastRefillTime) / 1000;
+    const refillTokens = timePassed * refillRate;
+
+    tokens = Math.min(capacity, tokens + refillTokens);
+
+    if (tokens >= 1) {
+        tokens -= 1;
+
+        await client.hSet(redisKey, {
+            tokens,
+            lastRefillTime: currentTime
+        });
+
+        return { allowed: true };
+    }
+
+    await client.hSet(redisKey, {
+        tokens,
+        lastRefillTime
+    });
+
+    return { allowed: false };
+}
 module.exports = {
     fixedWindowLimiter,
-    slidingWindowLimiter
+    slidingWindowLimiter,
+    tokenBucketLimiter
 };
