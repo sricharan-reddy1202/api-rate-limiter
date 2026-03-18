@@ -10,12 +10,42 @@ app.get('/', (req, res) => {
 });
 
 // Apply middleware to route
+// Sliding Window Example
 app.get(
-    '/test',
-    rateLimiter({ capacity: 5, refillRate: 1 }),
+    '/sliding',
+    rateLimiter({
+        strategy: 'sliding-window',
+        limit: 5,
+        windowMs: 60 * 1000
+    }),
     (req, res) => {
-        res.json({ message: 'Request successful' });
+        res.json({ message: 'Sliding window success' });
     }
 );
 
+// Token Bucket Example
+app.get(
+    '/token',
+    rateLimiter({
+        strategy: 'token-bucket',
+        capacity: 5,
+        refillRate: 1
+    }),
+    (req, res) => {
+        res.json({ message: 'Token bucket success' });
+    }
+);
+
+// Fixed Window Example
+app.get(
+    '/fixed',
+    rateLimiter({
+        strategy: 'fixed-window',
+        limit: 5,
+        windowMs: 60 * 1000
+    }),
+    (req, res) => {
+        res.json({ message: 'Fixed window success' });
+    }
+);
 module.exports = app;

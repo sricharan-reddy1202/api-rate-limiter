@@ -1,58 +1,23 @@
-// const { fixedWindowLimiter } = require('../services/rateLimiter');
-
-// function rateLimiter(options) {
-//     const { limit, windowMs } = options;
-
-//     return async (req, res, next) => {
-//         const key = req.ip;
-
-//         const result = await fixedWindowLimiter(key, limit, windowMs);
-
-//         if (!result.allowed) {
-//             return res.status(429).json({
-//                 message: 'Too many requests, please try again later'
-//             });
-//         }
-
-//         next();
-//     };
-// }
-
-// module.exports = rateLimiter;
-// const { slidingWindowLimiter } = require('../services/rateLimiter');
-
-// function rateLimiter(options) {
-//     const { limit, windowMs } = options;
-
-//     return async (req, res, next) => {
-//         const key = req.ip;
-
-//         const result = await slidingWindowLimiter(key, limit, windowMs);
-
-//         if (!result.allowed) {
-//             return res.status(429).json({
-//                 message: 'Too many requests, please try again later'
-//             });
-//         }
-
-//         next();
-//     };
-// }
-
-// module.exports = rateLimiter;
-const { tokenBucketLimiter } = require('../services/rateLimiter');
+const { getLimiter } = require('../services/strategySelector');
 
 function rateLimiter(options) {
-    const { capacity, refillRate } = options;
+    const { strategy } = options;
+
+    const limiter = getLimiter(strategy);
 
     return async (req, res, next) => {
         const key = req.ip;
 
-        const result = await tokenBucketLimiter(
-            key,
-            capacity,
-            refillRate
-        );
+        let result;
+
+        // Handle different strategies
+        if (strategy === 'token-bucket') {
+            const { capacity, refillRate } = options;
+            result = await limiter(key, capacity, refillRate);
+        } else {
+            const { limit, windowMs } = options;
+            result = await limiter(key, limit, windowMs);
+        }
 
         if (!result.allowed) {
             return res.status(429).json({
