@@ -1,30 +1,23 @@
-const store = {}; // In-memory store (later we replace with Redis)
+const { client } = require('../config/redis');
 
-function fixedWindowLimiter(key, limit, windowMs) {
-    const currentTime = Date.now();
+async function fixedWindowLimiter(key, limit, windowMs) {
+    const redisKey = `rate:${key}`;
 
-    if (!store[key]) {
-        store[key] = {
-            count: 1,
-            startTime: currentTime
-        };
+    // Get current count
+    let current = await client.get(redisKey);
+
+    if (!current) {
+        // First request
+        await client.set(redisKey, 1, {
+            PX: windowMs
+        });
         return { allowed: true };
     }
 
-    const elapsedTime = currentTime - store[key].startTime;
+    current = parseInt(current);
 
-    // If window expired → reset
-    if (elapsedTime > windowMs) {
-        store[key] = {
-            count: 1,
-            startTime: currentTime
-        };
-        return { allowed: true };
-    }
-
-    // Within window
-    if (store[key].count < limit) {
-        store[key].count++;
+    if (current < limit) {
+        await client.incr(redisKey);
         return { allowed: true };
     }
 
