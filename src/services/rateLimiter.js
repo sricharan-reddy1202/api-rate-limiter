@@ -1,6 +1,6 @@
 const { client } = require('../config/redis');
 
-// ✅ Fixed Window (Redis version)
+//  Fixed Window (Redis version)
 async function fixedWindowLimiter(key, limit, windowMs) {
     const redisKey = `rate:fixed:${key}`;
 
@@ -22,8 +22,7 @@ async function fixedWindowLimiter(key, limit, windowMs) {
 
     return { allowed: false };
 }
-
-// ✅ Sliding Window
+//sliding window Limiter
 async function slidingWindowLimiter(key, limit, windowMs) {
     const redisKey = `rate:sliding:${key}`;
     const currentTime = Date.now();
@@ -44,10 +43,22 @@ async function slidingWindowLimiter(key, limit, windowMs) {
 
         await client.expire(redisKey, Math.ceil(windowMs / 1000));
 
-        return { allowed: true };
+        return {
+            allowed: true,
+            remaining: limit - (count + 1),
+            retryAfter: 0
+        };
     }
 
-    return { allowed: false };
+    // Calculate retry time
+    const oldest = await client.zRange(redisKey, 0, 0, { WITHSCORES: true });
+    const retryAfter = Math.ceil((oldest[1] + windowMs - currentTime) / 1000);
+
+    return {
+        allowed: false,
+        remaining: 0,
+        retryAfter
+    };
 }
 // Token Bucket Limiter
 async function tokenBucketLimiter(key, capacity, refillRate) {
