@@ -1,38 +1,56 @@
 const { client } = require('../config/redis');
 
-//  Fixed Window (Redis version)
+
+//FIXED WINDOW 
 async function fixedWindowLimiter(key, limit, windowMs) {
     const redisKey = `rate:fixed:${key}`;
 
     let current = await client.get(redisKey);
 
+    // First request
     if (!current) {
-        await client.set(redisKey, 1, {
-            PX: windowMs
-        });
-        return { allowed: true };
+        await client.set(redisKey, 1, { PX: windowMs });
+
+        return {
+            allowed: true,
+            remaining: limit - 1,
+            retryAfter: 0
+        };
     }
 
     current = parseInt(current);
 
+    // Within limit
     if (current < limit) {
         await client.incr(redisKey);
-        return { allowed: true };
+
+        return {
+            allowed: true,
+            remaining: limit - (current + 1),
+            retryAfter: 0
+        };
     }
 
-    return { allowed: false };
+    // Limit exceeded
+    const ttl = await client.pTTL(redisKey);
+
+    return {
+        allowed: false,
+        remaining: 0,
+        retryAfter: Math.max(0, Math.ceil(ttl / 1000))
+    };
 }
-//sliding window Limiter
+
+
+//SLIDING WINDOW 
 async function slidingWindowLimiter(key, limit, windowMs) {
     const redisKey = `rate:sliding:${key}`;
     const currentTime = Date.now();
 
-    await client.zRemRangeByScore(
-        redisKey,
-        0,
-        currentTime - windowMs
-    );
+    // Remove old requests
+    await client.zRemRangeByScore(redisKey, 0, currentTime - windowMs);
 
+    // Count current requests
     const count = await client.zCard(redisKey);
 
     if (count < limit) {
@@ -50,9 +68,17 @@ async function slidingWindowLimiter(key, limit, windowMs) {
         };
     }
 
-    // Calculate retry time
-    const oldest = await client.zRange(redisKey, 0, 0, { WITHSCORES: true });
-    const retryAfter = Math.ceil((oldest[1] + windowMs - currentTime) / 1000);
+    // Get oldest request timestamp
+    const oldest = await client.zRange(redisKey, 0, 0, {
+        WITHSCORES: true
+    });
+
+    const oldestTimestamp = parseInt(oldest[0].score);
+
+    const retryAfter = Math.max(
+        0,
+        Math.ceil((oldestTimestamp + windowMs - currentTime) / 1000)
+    );
 
     return {
         allowed: false,
@@ -60,7 +86,9 @@ async function slidingWindowLimiter(key, limit, windowMs) {
         retryAfter
     };
 }
-// Token Bucket Limiter
+
+
+// TOKEN BUCKET
 async function tokenBucketLimiter(key, capacity, refillRate) {
     const redisKey = `rate:token:${key}`;
     const currentTime = Date.now();
@@ -70,8 +98,8 @@ async function tokenBucketLimiter(key, capacity, refillRate) {
     let tokens;
     let lastRefillTime;
 
+    // First request
     if (Object.keys(data).length === 0) {
-        // First request
         tokens = capacity - 1;
         lastRefillTime = currentTime;
 
@@ -80,18 +108,26 @@ async function tokenBucketLimiter(key, capacity, refillRate) {
             lastRefillTime
         });
 
-        return { allowed: true };
+        // Set TTL (avoid memory leak)
+        await client.expire(redisKey, Math.ceil(capacity / refillRate));
+
+        return {
+            allowed: true,
+            remaining: capacity - 1,
+            retryAfter: 0
+        };
     }
 
     tokens = parseFloat(data.tokens);
     lastRefillTime = parseInt(data.lastRefillTime);
 
-    // Calculate tokens to add
+    // Refill tokens
     const timePassed = (currentTime - lastRefillTime) / 1000;
     const refillTokens = timePassed * refillRate;
 
     tokens = Math.min(capacity, tokens + refillTokens);
 
+    // If request allowed
     if (tokens >= 1) {
         tokens -= 1;
 
@@ -100,16 +136,37 @@ async function tokenBucketLimiter(key, capacity, refillRate) {
             lastRefillTime: currentTime
         });
 
-        return { allowed: true };
+        await client.expire(redisKey, Math.ceil(capacity / refillRate));
+
+        return {
+            allowed: true,
+            remaining: Math.floor(tokens),
+            retryAfter: 0
+        };
     }
 
+    // If blocked
     await client.hSet(redisKey, {
         tokens,
         lastRefillTime
     });
 
-    return { allowed: false };
+    await client.expire(redisKey, Math.ceil(capacity / refillRate));
+
+    const retryAfter = Math.max(
+        0,
+        Math.ceil((1 - tokens) / refillRate)
+    );
+
+    return {
+        allowed: false,
+        remaining: 0,
+        retryAfter
+    };
 }
+
+
+
 module.exports = {
     fixedWindowLimiter,
     slidingWindowLimiter,
